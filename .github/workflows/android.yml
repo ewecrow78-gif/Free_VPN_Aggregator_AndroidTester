@@ -20,8 +20,11 @@ jobs:
           curl -fL -o xray.zip "https://github.com/XTLS/Xray-core/releases/download/v1.8.24/Xray-android-arm64-v8a.zip"
           unzip -o xray.zip xray -d app/src/main/assets/
           chmod +x app/src/main/assets/xray
+          echo "Xray OK: $(wc -c < app/src/main/assets/xray) bytes"
+      - name: Make gradlew executable
+        run: chmod +x gradlew
       - name: Build Debug APK
-        run: gradle assembleDebug --no-daemon
+        run: ./gradlew assembleDebug --no-daemon --stacktrace
       - uses: actions/upload-artifact@v4
         with:
           name: GhostVPN-Tester-debug
