@@ -1,0 +1,58 @@
+name: Android Build & Release PoC
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v3
+        with:
+          gradle-version: '8.4'
+
+      - name: Make Gradle Wrapper Executable (if exists)
+        run: chmod +x gradlew || true
+
+      - name: Download Xray binary
+        run: |
+          mkdir -p app/src/main/assets
+          curl -L -o xray.zip https://github.com/XTLS/Xray-core/releases/download/v1.8.24/Xray-android-arm64-v8a.zip
+          unzip xray.zip
+          mv xray app/src/main/assets/xray
+          rm xray.zip
+
+      - name: Build Debug APK
+        run: gradle assembleDebug
+
+      - name: Upload APK as Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-debug
+          path: app/build/outputs/apk/debug/app-debug.apk
+
+      - name: Create Release
+        uses: ncipollo/release-action@v1
+        with:
+          artifacts: "app/build/outputs/apk/debug/app-debug.apk"
+          tag: "poc-v0.1"
+          name: "Proof of Concept (v0.1)"
+          body: "Initial PoC for Cellular forced VPN routing with Xray-core."
+          allowUpdates: true
+          replacesArtifacts: true
+          token: ${{ secrets.GITHUB_TOKEN }}
