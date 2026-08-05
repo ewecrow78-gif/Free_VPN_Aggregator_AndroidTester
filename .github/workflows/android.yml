@@ -1,19 +1,29 @@
 name: Android Build & Release PoC
+
 on:
   push:
-    branches: [main]
+    branches:
+      - main
+
 permissions:
   contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
         with:
           java-version: '17'
           distribution: 'temurin'
-      - uses: android-actions/setup-android@v3
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
       - name: Download Xray binary
         run: |
           mkdir -p app/src/main/assets
@@ -21,20 +31,33 @@ jobs:
           unzip -o xray.zip xray -d app/src/main/assets/
           chmod +x app/src/main/assets/xray
           echo "Xray OK: $(wc -c < app/src/main/assets/xray) bytes"
-      - name: Make gradlew executable
-        run: chmod +x gradlew
+
+      - name: Setup Gradle Wrapper
+        run: |
+          chmod +x gradlew
+          # Download gradle-wrapper.jar (binary, not committed to repo)
+          mkdir -p gradle/wrapper
+          curl -fLo gradle/wrapper/gradle-wrapper.jar \
+            "https://github.com/gradle/gradle/raw/v8.4.0/gradle/wrapper/gradle-wrapper.jar"
+          echo "wrapper.jar OK: $(wc -c < gradle/wrapper/gradle-wrapper.jar) bytes"
+
       - name: Build Debug APK
         run: ./gradlew assembleDebug --no-daemon --stacktrace
-      - uses: actions/upload-artifact@v4
+
+      - name: Upload APK Artifact
+        uses: actions/upload-artifact@v4
         with:
           name: GhostVPN-Tester-debug
           path: app/build/outputs/apk/debug/app-debug.apk
-      - uses: ncipollo/release-action@v1
+          retention-days: 7
+
+      - name: Create GitHub Release
+        uses: ncipollo/release-action@v1
         with:
           artifacts: "app/build/outputs/apk/debug/app-debug.apk"
           tag: "poc-v0.1"
           name: "GhostVPN Tester PoC v0.1"
-          body: "Cellular routing via Xray-core + CellularSocksProxy"
+          body: "Cellular routing via Xray-core + CellularSocksProxy. Install on iQOO Neo 9 with both WiFi and Mobile data enabled."
           allowUpdates: true
           replacesArtifacts: true
           token: ${{ secrets.GITHUB_TOKEN }}
