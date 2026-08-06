@@ -1,0 +1,25 @@
+# Gradle
+.gradle/
+build/
+gradle-*/
+*.zip
+
+# gh CLI tool
+gh_*/
+
+# Android
+*.apk
+*.aab
+*.ap_
+*.dex
+local.properties
+.idea/
+*.iml
+captures/
+.externalNativeBuild/
+.cxx/
+
+# Kotlin
+*.class
+.android-sdk/
+jdk17/
