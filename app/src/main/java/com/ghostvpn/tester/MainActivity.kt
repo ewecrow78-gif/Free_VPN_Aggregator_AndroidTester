@@ -1,209 +1,87 @@
 package com.ghostvpn.tester
 
-import android.content.Context
-import android.net.ConnectivityManager
-import android.net.Network
-import android.net.NetworkCapabilities
-import android.net.NetworkRequest
 import android.os.Bundle
-import android.util.Log
-import android.widget.TextView
-import androidx.appcompat.app.AppCompatActivity
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-import okhttp3.OkHttpClient
-import okhttp3.Request
-import java.io.File
-import java.io.FileOutputStream
-import java.net.InetSocketAddress
-import java.net.Proxy
-import java.util.concurrent.TimeUnit
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.setContent
+import androidx.activity.viewModels
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.*
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.dp
+import com.ghostvpn.tester.ui.MainViewModel
+import com.ghostvpn.tester.worker.WorkerSetup
+import java.text.SimpleDateFormat
+import java.util.*
 
-class MainActivity : AppCompatActivity() {
-    private val TAG = "GhostVPNTester"
-    private lateinit var logView: TextView
-    private var cellularNetwork: Network? = null
-    
-    // Hardcoded PoC config payload. You'd normally fetch this from API.
-    // Notice dialerProxy: "cellular_socks"
-    private val xrayConfigTemplate = """
-    {
-      "log": {
-        "loglevel": "debug"
-      },
-      "inbounds": [
-        {
-          "listen": "127.0.0.1",
-          "port": 10809,
-          "protocol": "socks",
-          "settings": {
-            "udp": true
-          }
-        }
-      ],
-      "outbounds": [
-        {
-          "tag": "proxy",
-          "protocol": "vless",
-          "settings": {
-            "vnext": [
-              {
-                "address": "1.1.1.1",
-                "port": 443,
-                "users": [
-                  {
-                    "id": "b831381d-6324-4d53-ad4f-8cda48b30811",
-                    "encryption": "none"
-                  }
-                ]
-              }
-            ]
-          },
-          "streamSettings": {
-            "network": "tcp",
-            "sockopt": {
-              "dialerProxy": "cellular_socks"
-            }
-          }
-        },
-        {
-          "tag": "cellular_socks",
-          "protocol": "socks",
-          "settings": {
-            "servers": [
-              {
-                "address": "127.0.0.1",
-                "port": 10810
-              }
-            ]
-          }
-        },
-        {
-            "tag": "direct",
-            "protocol": "freedom"
-        }
-      ],
-      "routing": {
-        "rules": [
-          {
-            "type": "field",
-            "outboundTag": "cellular_socks",
-            "port": "10810"
-          }
-        ]
-      }
-    }
-    """.trimIndent()
+class MainActivity : ComponentActivity() {
+    private val viewModel: MainViewModel by viewModels()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        logView = TextView(this)
-        setContentView(logView)
-        appendLog("App started. Requesting Cellular Network...")
+        
+        // Start background periodic job on first launch
+        WorkerSetup.setupPeriodicWork(this)
 
-        requestCellularNetwork()
-    }
-
-    private fun appendLog(msg: String) {
-        Log.i(TAG, msg)
-        runOnUiThread {
-            logView.append(msg + "\n")
-        }
-    }
-
-    private fun requestCellularNetwork() {
-        val connectivityManager = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
-        val request = NetworkRequest.Builder()
-            .addTransportType(NetworkCapabilities.TRANSPORT_CELLULAR)
-            .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
-            .build()
-
-        connectivityManager.requestNetwork(request, object : ConnectivityManager.NetworkCallback() {
-            override fun onAvailable(network: Network) {
-                super.onAvailable(network)
-                if (cellularNetwork == null) {
-                    cellularNetwork = network
-                    appendLog("Cellular Network Acquired: $network")
-                    startPoC()
+        setContent {
+            MaterialTheme {
+                Surface(
+                    modifier = Modifier.fillMaxSize(),
+                    color = MaterialTheme.colorScheme.background
+                ) {
+                    TesterAppScreen(viewModel)
                 }
             }
-            override fun onLost(network: Network) {
-                super.onLost(network)
-                appendLog("Cellular Network Lost!")
-                cellularNetwork = null
-            }
-        })
+        }
     }
+}
 
-    private fun startPoC() {
-        CoroutineScope(Dispatchers.IO).launch {
-            try {
-                // 1. Extract Xray binary
-                appendLog("Extracting Xray binary...")
-                val xrayFile = File(filesDir, "xray")
-                if (!xrayFile.exists()) {
-                    assets.open("xray").use { input ->
-                        FileOutputStream(xrayFile).use { output ->
-                            input.copyTo(output)
+@Composable
+fun TesterAppScreen(viewModel: MainViewModel) {
+    val results by viewModel.results.collectAsState()
+
+    Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+        Text(text = "GhostVPN Cellular Tester", style = MaterialTheme.typography.headlineMedium)
+        
+        Spacer(modifier = Modifier.height(16.dp))
+        
+        Button(
+            onClick = { viewModel.startTestManually() },
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("Run Test Now")
+        }
+        
+        Spacer(modifier = Modifier.height(16.dp))
+        Text(text = "Recent Test Logs:", style = MaterialTheme.typography.titleMedium)
+        Spacer(modifier = Modifier.height(8.dp))
+
+        LazyColumn {
+            items(results) { result ->
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 4.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = if (result.isSuccess) Color(0xFFE8F5E9) else Color(0xFFFFEBEE)
+                    )
+                ) {
+                    Column(modifier = Modifier.padding(12.dp)) {
+                        val date = SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date(result.startTime))
+                        Text(text = "Time: $date | Carrier: ${result.carrierName}", style = MaterialTheme.typography.bodySmall)
+                        Text(text = "Config ID: ${result.configId}", style = MaterialTheme.typography.bodyMedium)
+                        if (result.isSuccess) {
+                            Text(text = "Success! Ping: ${result.latencyMs}ms | Data: ${result.bytesTransferred}b")
+                        } else {
+                            Text(text = "Failed: ${result.errorMessage}", color = Color.Red)
                         }
                     }
                 }
-                xrayFile.setExecutable(true)
-                appendLog("Xray binary ready: ${xrayFile.absolutePath}")
-
-                // 2. Start CellularSocksProxy
-                appendLog("Starting CellularSocksProxy on 10810...")
-                val proxy = CellularSocksProxy(10810, cellularNetwork!!)
-                Thread { proxy.start() }.start()
-
-                // 3. Write config.json
-                val configFile = File(filesDir, "config.json")
-                configFile.writeText(xrayConfigTemplate)
-
-                // 4. Run Xray via ProcessBuilder
-                appendLog("Starting Xray Process...")
-                val pb = ProcessBuilder(xrayFile.absolutePath, "-c", configFile.absolutePath)
-                pb.directory(filesDir)
-                pb.redirectErrorStream(true)
-                val process = pb.start()
-                
-                // Read logs in background
-                Thread {
-                    process.inputStream.bufferedReader().useLines { lines ->
-                        lines.forEach { Log.d("XRAY_CORE", it) }
-                    }
-                }.start()
-
-                appendLog("Xray started! Waiting 3 seconds...")
-                kotlinx.coroutines.delay(3000)
-
-                // 5. Test HTTP via Xray inbound
-                appendLog("Testing connectivity through Xray...")
-                val client = OkHttpClient.Builder()
-                    .proxy(Proxy(Proxy.Type.SOCKS, InetSocketAddress("127.0.0.1", 10809)))
-                    .connectTimeout(5, TimeUnit.SECONDS)
-                    .readTimeout(5, TimeUnit.SECONDS)
-                    .build()
-
-                // Google generate_204 check
-                val req = Request.Builder().url("http://www.google.com/generate_204").build()
-                try {
-                    val resp = client.newCall(req).execute()
-                    appendLog("TEST RESULT: HTTP ${resp.code}")
-                } catch (e: Exception) {
-                    appendLog("TEST FAILED: ${e.message}")
-                }
-
-                // Cleanup
-                appendLog("Destroying Xray process...")
-                process.destroy()
-                proxy.stop()
-                appendLog("PoC Completed.")
-
-            } catch (e: Exception) {
-                appendLog("ERROR: ${e.message}")
             }
         }
     }

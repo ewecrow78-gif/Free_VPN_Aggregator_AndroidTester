@@ -3,7 +3,7 @@ name: Android Build & Release PoC
 on:
   push:
     branches:
-      - master
+      - main
 
 permissions:
   contents: write
@@ -21,30 +21,49 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
-      - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v3
-        with:
-          gradle-version: '8.4'
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
 
-      - name: Make Gradle Wrapper Executable (if exists)
-        run: chmod +x gradlew || true
+      - name: Download Xray binary
+        run: |
+          mkdir -p app/src/main/assets
+          curl -fL -o xray.zip "https://github.com/XTLS/Xray-core/releases/download/v1.8.24/Xray-android-arm64-v8a.zip"
+          unzip -o xray.zip xray -d app/src/main/assets/
+          chmod +x app/src/main/assets/xray
+
+      - name: Setup Gradle Wrapper
+        run: |
+          chmod +x gradlew
+          mkdir -p gradle/wrapper
+          curl -fLo gradle/wrapper/gradle-wrapper.jar "https://github.com/gradle/gradle/raw/v8.4.0/gradle/wrapper/gradle-wrapper.jar"
 
       - name: Build Debug APK
-        run: gradle assembleDebug
+        run: |
+          ./gradlew assembleDebug --no-daemon --stacktrace > build.log 2>&1 || {
+            echo "FAILED!"
+            git config --global user.name "github-actions[bot]"
+            git config --global user.email "github-actions[bot]@users.noreply.github.com"
+            git add build.log
+            git commit -m "Upload build.log [skip ci]"
+            git push origin HEAD:main
+            exit 1
+          }
+          echo "SUCCESS!"
+          find app/build/outputs -name "*.apk"
 
-      - name: Upload APK as Artifact
+      - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: app-debug
-          path: app/build/outputs/apk/debug/app-debug.apk
+          name: GhostVPN-Tester-debug
+          path: app/build/outputs/apk/**/*.apk
 
-      - name: Create Release
+      - name: Create GitHub Release
         uses: ncipollo/release-action@v1
         with:
-          artifacts: "app/build/outputs/apk/debug/app-debug.apk"
+          artifacts: "app/build/outputs/apk/**/*.apk"
           tag: "poc-v0.1"
-          name: "Proof of Concept (v0.1)"
-          body: "Initial PoC for Cellular forced VPN routing with Xray-core."
+          name: "GhostVPN Tester PoC v0.1"
+          body: "Direct APK download from GitHub Release assets."
           allowUpdates: true
           replacesArtifacts: true
           token: ${{ secrets.GITHUB_TOKEN }}
